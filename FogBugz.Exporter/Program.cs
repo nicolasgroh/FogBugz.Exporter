@@ -7,6 +7,7 @@ using FogBugz.Exporter.API;
 using FogBugz.Exporter.API.APIModels;
 using System.Linq;
 using System.IO;
+using System.Net;
 
 namespace FogBugz.Exporter
 {
@@ -23,7 +24,9 @@ namespace FogBugz.Exporter
 
         static void Main(string[] args)
         {
-            var httpClient = new HttpClient();
+            var handler = new HttpClientHandler() { CookieContainer = new CookieContainer() };
+
+            var httpClient = new HttpClient(handler);
 
             #region Login
             Console.WriteLine("Domain:");
@@ -185,9 +188,11 @@ namespace FogBugz.Exporter
             Console.WriteLine();
             Console.WriteLine("Creating case files...");
 
-            var directoryName = "Cases";
+            var casesDirectoryName = "Cases";
 
-            if (!Directory.Exists(directoryName)) Directory.CreateDirectory(directoryName);
+            if (!Directory.Exists(casesDirectoryName)) Directory.CreateDirectory(casesDirectoryName);
+
+            var attachments = new List<Tuple<int, ExportModels.Attachment[]>>();
 
             for (int i = 0; i < Cases.Count; i++)
             {
@@ -195,11 +200,15 @@ namespace FogBugz.Exporter
 
                 var exportCase = apiCase.ToExportCase();
 
+                var caseAttachments = exportCase.Events.Where(i => i.Attachments != null).SelectMany(i => i.Attachments)?.ToArray();
+
+                if (caseAttachments != null) attachments.Add(new Tuple<int, ExportModels.Attachment[]>(exportCase.Number, caseAttachments));
+
                 if (!TryAction(CreateFilesTryCount, () =>
                 {
                     try
                     {
-                        File.WriteAllText(Path.ChangeExtension(Path.Combine(directoryName, exportCase.Number.ToString()), "json"), JsonConvert.SerializeObject(exportCase, Formatting.Indented));
+                        File.WriteAllText(Path.ChangeExtension(Path.Combine(casesDirectoryName, exportCase.Number.ToString()), "json"), JsonConvert.SerializeObject(exportCase, Formatting.Indented));
                     }
                     catch (Exception ex)
                     {
@@ -211,6 +220,65 @@ namespace FogBugz.Exporter
                     return;
                 }
             }
+
+            Console.WriteLine();
+            Console.WriteLine("Downloading and creating attachment files...");
+
+            var attachmentsDirectoryName = "Attachments";
+
+            if (!Directory.Exists(attachmentsDirectoryName)) Directory.CreateDirectory(attachmentsDirectoryName);
+
+            var attachmentsBaseUriString = $"https://{Domain}.fogbugz.com";
+
+            var attachmentsBaseUri = new Uri(attachmentsBaseUriString);
+
+            handler.CookieContainer.Add(attachmentsBaseUri, new Cookie("fbToken", "0lim6k9qm8enlch4egc5tgaga8t5b9"));
+
+            progress = 0;
+
+            for (int i = 0; i < attachments.Count; i++)
+            {
+                var caseAttachments = attachments[i];
+
+                progress = (double)i / Cases.Count * 100d;
+
+                UpdateProgress($"{progressPrefix} {progress:n2} %");
+
+                for (int j = 0; j < caseAttachments.Item2.Length; j++)
+                {
+                    var attachment = caseAttachments.Item2[j];
+
+                    TryAction(CreateFilesTryCount, () =>
+                    {
+                        var filename = $"{caseAttachments.Item1}_{attachment.Filename}";
+
+                        if (filename.ToLower().EndsWith(".unsafe")) filename = filename.Substring(0, filename.Length - 7);
+
+                        try
+                        {
+                            var resultTask = httpClient.GetByteArrayAsync($"{attachmentsBaseUriString}/{RemoveXmlEscapeCharacters(attachment.URL)}");
+
+                            resultTask.Wait();
+
+                            File.WriteAllBytes(Path.Combine(attachmentsDirectoryName, filename), resultTask.Result);
+                        }
+                        catch (Exception ex)
+                        {
+                            throw new Exception($"File {filename} could not be created: {ex.Message}", ex);
+                        }
+                    });
+
+                    System.Threading.Thread.Sleep(100);
+                }
+            }
+
+            progress = 100;
+
+            UpdateProgress($"{progressPrefix} {progress:n2} %");
+
+            Console.WriteLine();
+
+            handler.CookieContainer.GetCookies(attachmentsBaseUri).Clear();
             #endregion
 
             Logoff(httpClient);
@@ -254,7 +322,7 @@ namespace FogBugz.Exporter
 
         private static string CreateQueryString(DateTime currentMonth)
         {
-            if (System.Diagnostics.Debugger.IsAttached) return "case:10283";
+            if (System.Diagnostics.Debugger.IsAttached) return "1730";
 
             return $"opened:\"{currentMonth.ToString("MMMM", System.Globalization.CultureInfo.GetCultureInfo("en-US"))} {currentMonth.Year}\"";
         }
@@ -262,6 +330,17 @@ namespace FogBugz.Exporter
         private static void UpdateProgress(string progressDisplay)
         {
             Console.Write($"\r{progressDisplay}");
+        }
+
+        private static string RemoveXmlEscapeCharacters(string xmlString)
+        {
+            var result = xmlString.Replace("&lt;", "<");
+            result = result.Replace("&gt;", ">");
+            result = result.Replace("&quot;", "\"");
+            result = result.Replace("&apos;", "'");
+            result = result.Replace("&amp;", "&");
+
+            return result;
         }
 
         private static void HandleException(Exception ex)

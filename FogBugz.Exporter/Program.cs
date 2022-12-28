@@ -232,7 +232,7 @@ namespace FogBugz.Exporter
 
             var attachmentsBaseUri = new Uri(attachmentsBaseUriString);
 
-            handler.CookieContainer.Add(attachmentsBaseUri, new Cookie("fbToken", "0lim6k9qm8enlch4egc5tgaga8t5b9"));
+            handler.CookieContainer.Add(attachmentsBaseUri, new Cookie("fbToken", Token));
 
             progress = 0;
 
@@ -322,7 +322,7 @@ namespace FogBugz.Exporter
 
         private static string CreateQueryString(DateTime currentMonth)
         {
-            if (System.Diagnostics.Debugger.IsAttached) return "1730";
+            if (System.Diagnostics.Debugger.IsAttached) return "case:176";
 
             return $"opened:\"{currentMonth.ToString("MMMM", System.Globalization.CultureInfo.GetCultureInfo("en-US"))} {currentMonth.Year}\"";
         }

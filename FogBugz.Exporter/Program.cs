@@ -174,7 +174,7 @@ namespace FogBugz.Exporter
 
                 currentMonth = currentMonth.AddMonths(1);
 
-                System.Threading.Thread.Sleep(100);
+                System.Threading.Thread.Sleep(50);
             }
 
             progress = 100;
@@ -244,15 +244,21 @@ namespace FogBugz.Exporter
 
                 UpdateProgress($"{progressPrefix} {progress:n2} %");
 
+                var filenames = new List<string>(caseAttachments.Item2.Length);
+
                 for (int j = 0; j < caseAttachments.Item2.Length; j++)
                 {
                     var attachment = caseAttachments.Item2[j];
 
                     TryAction(CreateFilesTryCount, () =>
                     {
-                        var filename = $"{caseAttachments.Item1}_{attachment.Filename}";
+                        var filename = $"{caseAttachments.Item1}_{j}_{attachment.Filename}";
 
                         if (filename.ToLower().EndsWith(".unsafe")) filename = filename.Substring(0, filename.Length - 7);
+
+                        filenames.Add(filename);
+
+                        var filePath = Path.Combine(attachmentsDirectoryName, filename);
 
                         try
                         {
@@ -260,7 +266,7 @@ namespace FogBugz.Exporter
 
                             resultTask.Wait();
 
-                            File.WriteAllBytes(Path.Combine(attachmentsDirectoryName, filename), resultTask.Result);
+                            File.WriteAllBytes(filePath, resultTask.Result);
                         }
                         catch (Exception ex)
                         {
@@ -268,7 +274,7 @@ namespace FogBugz.Exporter
                         }
                     });
 
-                    System.Threading.Thread.Sleep(100);
+                    System.Threading.Thread.Sleep(50);
                 }
             }
 
